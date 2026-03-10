@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd ui && npm run build",
+  "buildCommand": "cd ui && npx react-scripts build",
   "outputDirectory": "ui/build",
   "framework": null,
   "installCommand": "cd ui && npm install",
