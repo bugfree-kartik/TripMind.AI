@@ -113,10 +113,10 @@ const MyTripsListing = () => {
             'Content-Type': 'application/json',
           },
         }).catch(err => {
-          console.log('Could not delete trip from backend:', err);
+          console.warn('Could not delete trip from backend:', err);
         });
       } catch (err) {
-        console.log('Error deleting trip from backend:', err);
+        console.warn('Error deleting trip from backend:', err);
       }
       
       // Update trips list

@@ -53,7 +53,6 @@ const SearchBar = () => {
       
       // Always save trip to localStorage (works offline)
       saveTripToLocalStorage(newTrip);
-      console.log('Trip saved locally:', newTrip);
       
       // Show success message
       setSuccess(true);

@@ -117,7 +117,7 @@ const TripChat = () => {
             setTripInfo(prev => prev || tripData);
           }
         } catch (err) {
-          console.log('Could not fetch trip info from backend, using local data');
+          console.warn('Could not fetch trip info from backend, using local data');
         }
 
         // Fetch existing messages FIRST (before checking for stored prompts)
@@ -129,22 +129,21 @@ const TripChat = () => {
             if (messagesData.messages && messagesData.messages.length > 0 && isMounted) {
               setMessages(messagesData.messages);
               hasExistingMessages = true;
-              console.log(`✅ Loaded ${messagesData.messages.length} messages from database`);
               // If we loaded messages, don't auto-send stored prompt
               return; // Exit early - messages loaded successfully
             }
           } else {
-            console.log('⚠️ Could not fetch messages from backend:', messagesResponse.status);
+            console.warn('Could not fetch messages from backend:', messagesResponse.status);
             // Try to get error details
             try {
               const errorData = await messagesResponse.json();
-              console.log('Error details:', errorData);
+              console.warn('Error details:', errorData);
             } catch (e) {
               // Ignore JSON parse errors
             }
           }
         } catch (err) {
-          console.log('❌ Error fetching messages from backend:', err);
+          console.error('Error fetching messages from backend:', err);
           // Try to load from localStorage as backup
           try {
             const key = `trip_chat_${tripId}`;
@@ -152,11 +151,10 @@ const TripChat = () => {
             if (localMessages.length > 0 && isMounted) {
               setMessages(localMessages);
               hasExistingMessages = true;
-              console.log(`📦 Loaded ${localMessages.length} messages from localStorage`);
               return; // Exit early - messages loaded from localStorage
             }
           } catch (localErr) {
-            console.log('❌ Could not load messages from localStorage:', localErr);
+            console.error('Could not load messages from localStorage:', localErr);
           }
         }
         
@@ -290,7 +288,7 @@ const TripChat = () => {
       }
       
       const result = await response.json();
-      console.log('✅ Message saved to backend:', result);
+      return result;
     } catch (error) {
       console.error('❌ Error saving message to backend:', error);
       // Also save to localStorage as backup
