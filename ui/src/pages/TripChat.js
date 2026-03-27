@@ -23,6 +23,67 @@ const TripChat = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentTripId, setCurrentTripId] = useState(tripId);
 
+  const buildUserMessage = (content) => ({
+    id: Date.now(),
+    role: 'user',
+    content,
+    timestamp: new Date().toISOString()
+  });
+
+  const buildAssistantMessage = (data) => ({
+    id: Date.now() + 1,
+    role: 'assistant',
+    content: data.message || 'Trip plan generated successfully!',
+    timestamp: new Date().toISOString(),
+    trip_plan: data.trip_plan,
+  });
+
+  const buildErrorMessage = (error) => ({
+    id: Date.now() + 1,
+    role: 'assistant',
+    content: `❌ Error: ${error.message}. Please try again.`,
+    timestamp: new Date().toISOString(),
+    isError: true,
+  });
+
+  const updateTripInfoFromPlan = (plan, newTripId) => {
+    if (plan?.request?.destination) {
+      setTripInfo(prev => ({
+        ...prev,
+        destination: plan.request.destination,
+        title: plan.request.destination || prev?.title || `Trip ${newTripId}`,
+      }));
+    }
+  };
+
+  const updateTripRoute = (newTripId) => {
+    if (newTripId) {
+      setCurrentTripId(newTripId);
+      if (tripId !== newTripId) {
+        window.history.replaceState(null, '', `/trips/${newTripId}/chat`);
+      }
+    }
+  };
+
+  const sendPromptToPlanner = async (userPrompt, targetTripId) => {
+    const response = await fetch(`${API_ENDPOINT}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: userPrompt,
+        user_id: user_id,
+        trip_id: targetTripId || undefined,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(errorData.detail || `Server error: ${response.status}`);
+    }
+
+    return response.json();
+  };
+
   // Fetch trip info and generate initial plan
   useEffect(() => {
     let isMounted = true;
@@ -112,70 +173,26 @@ const TripChat = () => {
           // Automatically send the prompt
           const autoSendPrompt = async () => {
             const userPrompt = storedPrompt;
-            const userMessage = {
-              id: Date.now(),
-              role: 'user',
-              content: userPrompt,
-              timestamp: new Date().toISOString()
-            };
+            const userMessage = buildUserMessage(userPrompt);
 
             // Add user message immediately
             setMessages([userMessage]);
             setIsLoading(true);
 
             try {
-              const response = await fetch(`${API_ENDPOINT}/chat`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  prompt: userPrompt,
-                  user_id: user_id,
-                  trip_id: tripId || undefined,
-                }),
-              });
-
-              if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
-                throw new Error(errorData.detail || `Server error: ${response.status}`);
-              }
-
-              const data = await response.json();
+              const data = await sendPromptToPlanner(userPrompt, tripId);
               
-              if (data.trip_id) {
-                setCurrentTripId(data.trip_id);
-                if (tripId !== data.trip_id) {
-                  window.history.replaceState(null, '', `/trips/${data.trip_id}/chat`);
-                }
-              }
-
-              const aiMessage = {
-                id: Date.now() + 1,
-                role: 'assistant',
-                content: data.message || 'Trip plan generated successfully!',
-                timestamp: new Date().toISOString(),
-                trip_plan: data.trip_plan,
-              };
+              updateTripRoute(data.trip_id);
+              const aiMessage = buildAssistantMessage(data);
 
               setMessages(prev => [...prev, aiMessage]);
               saveMessageToLocalStorage(userMessage);
               saveMessageToLocalStorage(aiMessage);
 
-              if (data.trip_plan?.request?.destination) {
-                setTripInfo(prev => ({
-                  ...prev,
-                  destination: data.trip_plan.request.destination,
-                  title: data.trip_plan.request.destination || prev?.title || `Trip ${data.trip_id}`,
-                }));
-              }
+              updateTripInfoFromPlan(data.trip_plan, data.trip_id);
             } catch (error) {
               console.error('Error auto-sending prompt:', error);
-              const errorMessage = {
-                id: Date.now() + 1,
-                role: 'assistant',
-                content: `❌ Error: ${error.message}. Please try again.`,
-                timestamp: new Date().toISOString(),
-                isError: true,
-              };
+              const errorMessage = buildErrorMessage(error);
               setMessages(prev => [...prev, errorMessage]);
             } finally {
               setIsLoading(false);
@@ -313,12 +330,7 @@ const TripChat = () => {
     if (!inputMessage.trim() || isLoading) return;
 
     const userPrompt = inputMessage.trim();
-    const userMessage = {
-      id: Date.now(),
-      role: 'user',
-      content: userPrompt,
-      timestamp: new Date().toISOString()
-    };
+    const userMessage = buildUserMessage(userPrompt);
 
     // Add user message immediately
     setMessages(prev => [...prev, userMessage]);
@@ -326,43 +338,15 @@ const TripChat = () => {
     setIsLoading(true);
 
     try {
-      // Call the chat API endpoint that runs all agents
-      const response = await fetch(`${API_ENDPOINT}/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt: userPrompt,
-          user_id: user_id,
-          trip_id: currentTripId || undefined, // Use current trip_id if exists
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
-        throw new Error(errorData.detail || `Server error: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const data = await sendPromptToPlanner(userPrompt, currentTripId);
       
       // Update trip_id if this is a new trip
       if (data.trip_id && !currentTripId) {
-        setCurrentTripId(data.trip_id);
-        // Update URL if needed
-        if (tripId !== data.trip_id) {
-          window.history.replaceState(null, '', `/trips/${data.trip_id}/chat`);
-        }
+        updateTripRoute(data.trip_id);
       }
 
       // Add AI response message
-      const aiMessage = {
-        id: Date.now() + 1,
-        role: 'assistant',
-        content: data.message || 'Trip plan generated successfully!',
-        timestamp: new Date().toISOString(),
-        trip_plan: data.trip_plan, // Store full trip plan for display
-      };
+      const aiMessage = buildAssistantMessage(data);
 
       setMessages(prev => [...prev, aiMessage]);
       
@@ -373,28 +357,13 @@ const TripChat = () => {
       saveMessageToLocalStorage(aiMessage);
 
       // Update trip info if available
-      if (data.trip_plan) {
-        const plan = data.trip_plan;
-        if (plan.request && plan.request.destination) {
-          setTripInfo(prev => ({
-            ...prev,
-            destination: plan.request.destination,
-            title: plan.request.destination || prev?.title || `Trip ${data.trip_id}`,
-          }));
-        }
-      }
+      updateTripInfoFromPlan(data.trip_plan, data.trip_id);
 
     } catch (error) {
       console.error('Error sending message:', error);
       
       // Add error message
-      const errorMessage = {
-        id: Date.now() + 1,
-        role: 'assistant',
-        content: `❌ Error: ${error.message}. Please try again.`,
-        timestamp: new Date().toISOString(),
-        isError: true,
-      };
+      const errorMessage = buildErrorMessage(error);
       
       setMessages(prev => [...prev, errorMessage]);
       saveMessageToLocalStorage(errorMessage);
@@ -827,4 +796,3 @@ const TripChat = () => {
 };
 
 export default TripChat;
-
