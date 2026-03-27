@@ -5,6 +5,9 @@ import { useUser } from '../contexts/UserContext';
 import { API_TRIP_PLANNER } from '../config';
 import './MyTripsListing.css';
 
+const sortTripsByLatest = (trips) =>
+  [...trips].sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
+
 const MyTripsListing = () => {
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -47,23 +50,17 @@ const MyTripsListing = () => {
             });
             
             // Convert map to array and sort by date (newest first)
-            const mergedTrips = Array.from(tripMap.values()).sort((a, b) => {
-              return new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt);
-            });
+            const mergedTrips = sortTripsByLatest(Array.from(tripMap.values()));
             
             setTrips(mergedTrips);
           } else {
             // If backend fails, use local trips
-            setTrips(localTrips.sort((a, b) => {
-              return new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt);
-            }));
+            setTrips(sortTripsByLatest(localTrips));
           }
         } catch (error) {
           console.error('Error fetching trips from backend:', error);
           // If backend fails, use local trips
-          setTrips(localTrips.sort((a, b) => {
-            return new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt);
-          }));
+          setTrips(sortTripsByLatest(localTrips));
         }
       } catch (error) {
         console.error('Error fetching trips:', error);
@@ -253,4 +250,3 @@ const MyTripsListing = () => {
 };
 
 export default MyTripsListing;
-
