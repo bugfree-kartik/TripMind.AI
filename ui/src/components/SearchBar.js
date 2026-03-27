@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useUser } from '../contexts/UserContext';
 import { createTripFromPrompt, saveTripToLocalStorage, extractLocation } from '../utils/tripUtils';
-import { API_TRIPS } from '../config';
 import './SearchBar.css';
 
 const SearchBar = () => {
@@ -17,8 +16,6 @@ const SearchBar = () => {
   const [success, setSuccess] = useState(false);
   const textareaRef = useRef(null);
   const wrapperRef = useRef(null);
-
-  const API_ENDPOINT = API_TRIPS;
 
   // Generate a unique tripId with clean URL format
   const generateTripId = (promptText) => {
@@ -50,19 +47,9 @@ const SearchBar = () => {
       setSuccess(false);
       
       const tripId = generateTripId(prompt.trim());
-      const promptData = {
-        prompt: prompt.trim(),
-        userId: user_id,
-        tripId: tripId,
-        timestamp: new Date().toISOString()
-      };
       
       // Create trip object from the prompt (always create, even if API fails)
       const newTrip = createTripFromPrompt(prompt.trim(), tripId, user_id);
-      
-      // Create AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
       // Always save trip to localStorage (works offline)
       saveTripToLocalStorage(newTrip);
