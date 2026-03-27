@@ -25,13 +25,6 @@ user_service = UserService()
 trips_storage: Dict[str, Dict] = {}
 
 
-# Pydantic models for chat
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-    timestamp: str
-
-
 class ChatRequest(BaseModel):
     """Request model for chat_plan_trip endpoint (runs all agents)"""
     prompt: str
@@ -129,7 +122,7 @@ def _ensure_trip_owner_access(cursor, user_id: str, trip_id: str):
         )
 
 
-def _save_trip_plan_to_db(user_id: str, trip_id: str, plan: TripPlan, is_update: bool):
+def _save_trip_plan_to_db(user_id: str, trip_id: str, plan: TripPlan):
     """Save trip plan to database and ensure owner has access"""
     try:
         conn = get_db_connection()
@@ -525,7 +518,7 @@ async def chat_plan_trip(request: ChatRequest):
         
         # Store trip plan in database (this also ensures owner has access)
         print(f"\n💾 Saving trip plan to database...")
-        _save_trip_plan_to_db(request.user_id, trip_id, plan, is_update)
+        _save_trip_plan_to_db(request.user_id, trip_id, plan)
         print(f"✅ Trip plan saved successfully!")
         
         # Generate chat-friendly message
