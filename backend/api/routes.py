@@ -25,13 +25,6 @@ user_service = UserService()
 trips_storage: Dict[str, Dict] = {}
 
 
-# Pydantic models for chat
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-    timestamp: str
-
-
 class ChatRequest(BaseModel):
     """Request model for chat_plan_trip endpoint (runs all agents)"""
     prompt: str
@@ -129,48 +122,47 @@ def _ensure_trip_owner_access(cursor, user_id: str, trip_id: str):
         )
 
 
-def _save_trip_plan_to_db(user_id: str, trip_id: str, plan: TripPlan, is_update: bool):
+def _save_trip_plan_to_db(user_id: str, trip_id: str, plan: TripPlan):
     """Save trip plan to database and ensure owner has access"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Get the latest version number
-        cursor.execute(
-            """
-            SELECT MAX(version_number) as max_version 
-            FROM itinerary_versions 
-            WHERE user_id = ? AND trip_id = ?
-            """,
-            (user_id, trip_id)
-        )
-        result = cursor.fetchone()
-        version_number = (result['max_version'] or 0) + 1 if result else 1
-        
-        # Save to itineraries table (latest version)
-        plan_json = json.dumps(plan.model_dump(), default=str)
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO itineraries (user_id, trip_id, itinerary, created_at, updated_at)
-            VALUES (?, ?, ?, datetime('now'), datetime('now'))
-            """,
-            (user_id, trip_id, plan_json)
-        )
-        
-        # Save to itinerary_versions table
-        cursor.execute(
-            """
-            INSERT INTO itinerary_versions (user_id, trip_id, version_number, modified_by, itinerary, created_at)
-            VALUES (?, ?, ?, ?, ?, datetime('now'))
-            """,
-            (user_id, trip_id, version_number, user_id, plan_json)
-        )
-        
-        # Ensure owner has access to their trip
-        _ensure_trip_owner_access(cursor, user_id, trip_id)
-        
-        conn.commit()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get the latest version number
+            cursor.execute(
+                """
+                SELECT MAX(version_number) as max_version 
+                FROM itinerary_versions 
+                WHERE user_id = ? AND trip_id = ?
+                """,
+                (user_id, trip_id)
+            )
+            result = cursor.fetchone()
+            version_number = (result['max_version'] or 0) + 1 if result else 1
+            
+            # Save to itineraries table (latest version)
+            plan_json = json.dumps(plan.model_dump(), default=str)
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO itineraries (user_id, trip_id, itinerary, created_at, updated_at)
+                VALUES (?, ?, ?, datetime('now'), datetime('now'))
+                """,
+                (user_id, trip_id, plan_json)
+            )
+            
+            # Save to itinerary_versions table
+            cursor.execute(
+                """
+                INSERT INTO itinerary_versions (user_id, trip_id, version_number, modified_by, itinerary, created_at)
+                VALUES (?, ?, ?, ?, ?, datetime('now'))
+                """,
+                (user_id, trip_id, version_number, user_id, plan_json)
+            )
+            
+            # Ensure owner has access to their trip
+            _ensure_trip_owner_access(cursor, user_id, trip_id)
+            
+            conn.commit()
     except Exception as e:
         print(f"⚠️  Error saving trip plan to database: {e}")
         import traceback
@@ -431,20 +423,19 @@ async def chat_plan_trip(request: ChatRequest):
         existing_plan = None
         if is_update:
             try:
-                conn = get_db_connection()
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    SELECT itinerary FROM itineraries 
-                    WHERE user_id = ? AND trip_id = ?
-                    """,
-                    (request.user_id, trip_id)
-                )
-                result = cursor.fetchone()
-                if result:
-                    plan_dict = json.loads(result['itinerary'])
-                    existing_plan = TripPlan(**plan_dict)
-                conn.close()
+                with get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        """
+                        SELECT itinerary FROM itineraries 
+                        WHERE user_id = ? AND trip_id = ?
+                        """,
+                        (request.user_id, trip_id)
+                    )
+                    result = cursor.fetchone()
+                    if result:
+                        plan_dict = json.loads(result['itinerary'])
+                        existing_plan = TripPlan(**plan_dict)
             except Exception as e:
                 print(f"⚠️  Warning: Could not load existing trip plan: {e}")
                 # Continue without existing plan
@@ -525,7 +516,7 @@ async def chat_plan_trip(request: ChatRequest):
         
         # Store trip plan in database (this also ensures owner has access)
         print(f"\n💾 Saving trip plan to database...")
-        _save_trip_plan_to_db(request.user_id, trip_id, plan, is_update)
+        _save_trip_plan_to_db(request.user_id, trip_id, plan)
         print(f"✅ Trip plan saved successfully!")
         
         # Generate chat-friendly message
@@ -533,44 +524,43 @@ async def chat_plan_trip(request: ChatRequest):
         
         # Save user's prompt and AI response to chat history
         try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            
-            # Save user message
-            user_message_timestamp = datetime.now().isoformat()
-            cursor.execute(
-                """
-                INSERT INTO chat_messages (trip_id, user_id, role, content, timestamp, created_at)
-                VALUES (?, ?, ?, ?, ?, datetime('now'))
-                """,
-                (
-                    trip_id,
-                    request.user_id,
-                    "user",
-                    request.prompt,
-                    user_message_timestamp
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Save user message
+                user_message_timestamp = datetime.now().isoformat()
+                cursor.execute(
+                    """
+                    INSERT INTO chat_messages (trip_id, user_id, role, content, timestamp, created_at)
+                    VALUES (?, ?, ?, ?, ?, datetime('now'))
+                    """,
+                    (
+                        trip_id,
+                        request.user_id,
+                        "user",
+                        request.prompt,
+                        user_message_timestamp
+                    )
                 )
-            )
-            
-            # Save assistant message with trip plan
-            assistant_message_timestamp = datetime.now().isoformat()
-            cursor.execute(
-                """
-                INSERT INTO chat_messages (trip_id, user_id, role, content, trip_plan, timestamp, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-                """,
-                (
-                    trip_id,
-                    request.user_id,
-                    "assistant",
-                    message,
-                    json.dumps(plan.model_dump(), default=str),
-                    assistant_message_timestamp
+                
+                # Save assistant message with trip plan
+                assistant_message_timestamp = datetime.now().isoformat()
+                cursor.execute(
+                    """
+                    INSERT INTO chat_messages (trip_id, user_id, role, content, trip_plan, timestamp, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                    """,
+                    (
+                        trip_id,
+                        request.user_id,
+                        "assistant",
+                        message,
+                        json.dumps(plan.model_dump(), default=str),
+                        assistant_message_timestamp
+                    )
                 )
-            )
-            
-            conn.commit()
-            conn.close()
+                
+                conn.commit()
             print(f"💾 Saved chat messages to database (user prompt + AI response)")
         except Exception as e:
             print(f"⚠️  Warning: Could not save chat messages: {e}")
@@ -737,41 +727,39 @@ async def save_message(tripId: str, request: MessageRequest):
     Messages are saved permanently so all shared users can view the full conversation
     """
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Check if user has access to this trip
-        if not _user_has_access_to_trip(cursor, request.userId, tripId):
-            conn.close()
-            raise HTTPException(
-                status_code=403,
-                detail="You don't have access to this trip. Please request access from the trip owner."
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if user has access to this trip
+            if not _user_has_access_to_trip(cursor, request.userId, tripId):
+                raise HTTPException(
+                    status_code=403,
+                    detail="You don't have access to this trip. Please request access from the trip owner."
+                )
+            
+            # Prepare message data
+            message = request.message
+            trip_plan_json = None
+            if message.get("trip_plan"):
+                trip_plan_json = json.dumps(message.get("trip_plan"), default=str)
+            
+            # Save message to database
+            cursor.execute(
+                """
+                INSERT INTO chat_messages (trip_id, user_id, role, content, trip_plan, timestamp, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                """,
+                (
+                    tripId,
+                    request.userId,
+                    message.get("role", "user"),
+                    message.get("content", ""),
+                    trip_plan_json,
+                    message.get("timestamp", datetime.now().isoformat())
+                )
             )
-        
-        # Prepare message data
-        message = request.message
-        trip_plan_json = None
-        if message.get("trip_plan"):
-            trip_plan_json = json.dumps(message.get("trip_plan"), default=str)
-        
-        # Save message to database
-        cursor.execute(
-            """
-            INSERT INTO chat_messages (trip_id, user_id, role, content, trip_plan, timestamp, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-            """,
-            (
-                tripId,
-                request.userId,
-                message.get("role", "user"),
-                message.get("content", ""),
-                trip_plan_json,
-                message.get("timestamp", datetime.now().isoformat())
-            )
-        )
-        
-        conn.commit()
-        conn.close()
+            
+            conn.commit()
         
         print(f"💾 Saved message to database: trip_id={tripId}, user_id={request.userId}, role={message.get('role')}")
         
@@ -792,65 +780,61 @@ async def get_messages(tripId: str, userId: str = Query(...)):
     Only users with access to the trip can view messages
     """
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Check if user has access to this trip
-        # First, check if trip exists (might be a new trip)
-        cursor.execute(
-            """
-            SELECT user_id FROM itineraries WHERE trip_id = ?
-            """,
-            (tripId,)
-        )
-        trip_exists = cursor.fetchone()
-        
-        # If trip doesn't exist yet, allow access (for new trips)
-        if not trip_exists:
-            conn.close()
-            print(f"⚠️  Trip {tripId} doesn't exist yet, returning empty messages")
-            return {"messages": []}
-        
-        # If trip exists, check access
-        if not _user_has_access_to_trip(cursor, userId, tripId):
-            conn.close()
-            raise HTTPException(
-                status_code=403,
-                detail="You don't have access to this trip. Please request access from the trip owner."
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if user has access to this trip
+            # First, check if trip exists (might be a new trip)
+            cursor.execute(
+                """
+                SELECT user_id FROM itineraries WHERE trip_id = ?
+                """,
+                (tripId,)
             )
-        
-        # Fetch all messages for this trip, ordered by timestamp
-        cursor.execute(
-            """
-            SELECT id, user_id, role, content, trip_plan, timestamp, created_at
-            FROM chat_messages
-            WHERE trip_id = ?
-            ORDER BY timestamp ASC
-            """,
-            (tripId,)
-        )
-        
-        rows = cursor.fetchall()
-        messages = []
-        
-        for row in rows:
-            message = {
-                "id": row["id"],
-                "role": row["role"],
-                "content": row["content"],
-                "timestamp": row["timestamp"],
-            }
+            trip_exists = cursor.fetchone()
             
-            # Parse trip_plan if present
-            if row["trip_plan"]:
-                try:
-                    message["trip_plan"] = json.loads(row["trip_plan"])
-                except:
-                    pass
+            # If trip doesn't exist yet, allow access (for new trips)
+            if not trip_exists:
+                print(f"⚠️  Trip {tripId} doesn't exist yet, returning empty messages")
+                return {"messages": []}
             
-            messages.append(message)
-        
-        conn.close()
+            # If trip exists, check access
+            if not _user_has_access_to_trip(cursor, userId, tripId):
+                raise HTTPException(
+                    status_code=403,
+                    detail="You don't have access to this trip. Please request access from the trip owner."
+                )
+            
+            # Fetch all messages for this trip, ordered by timestamp
+            cursor.execute(
+                """
+                SELECT id, user_id, role, content, trip_plan, timestamp, created_at
+                FROM chat_messages
+                WHERE trip_id = ?
+                ORDER BY timestamp ASC
+                """,
+                (tripId,)
+            )
+            
+            rows = cursor.fetchall()
+            messages = []
+            
+            for row in rows:
+                message = {
+                    "id": row["id"],
+                    "role": row["role"],
+                    "content": row["content"],
+                    "timestamp": row["timestamp"],
+                }
+                
+                # Parse trip_plan if present
+                if row["trip_plan"]:
+                    try:
+                        message["trip_plan"] = json.loads(row["trip_plan"])
+                    except:
+                        pass
+                
+                messages.append(message)
         
         print(f"📤 Retrieved {len(messages)} messages for trip_id={tripId}, user_id={userId}")
         
@@ -883,82 +867,78 @@ async def invite_user(tripId: str, request: InviteRequest):
     The invited user will be able to see all chat history and make changes
     """
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Verify that the requesting user is the owner
-        # First check in shared_trips
-        cursor.execute(
-            """
-            SELECT owner_user_id FROM shared_trips 
-            WHERE trip_id = ? AND owner_user_id = ? AND shared_user_id = ?
-            """,
-            (tripId, request.userId, request.userId)
-        )
-        owner_row = cursor.fetchone()
-        
-        # If not found, check in itineraries table
-        if not owner_row:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Verify that the requesting user is the owner
+            # First check in shared_trips
             cursor.execute(
                 """
-                SELECT user_id FROM itineraries WHERE trip_id = ? AND user_id = ?
+                SELECT owner_user_id FROM shared_trips 
+                WHERE trip_id = ? AND owner_user_id = ? AND shared_user_id = ?
                 """,
-                (tripId, request.userId)
+                (tripId, request.userId, request.userId)
             )
             owner_row = cursor.fetchone()
-        
-        if not owner_row:
-            conn.close()
-            raise HTTPException(
-                status_code=403,
-                detail="Only the trip owner can invite users"
+            
+            # If not found, check in itineraries table
+            if not owner_row:
+                cursor.execute(
+                    """
+                    SELECT user_id FROM itineraries WHERE trip_id = ? AND user_id = ?
+                    """,
+                    (tripId, request.userId)
+                )
+                owner_row = cursor.fetchone()
+            
+            if not owner_row:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only the trip owner can invite users"
+                )
+            
+            # Find user by email to get their user_id
+            cursor.execute(
+                """
+                SELECT user_id, email FROM users WHERE email = ?
+                """,
+                (request.inviteEmail,)
             )
-        
-        # Find user by email to get their user_id
-        cursor.execute(
-            """
-            SELECT user_id, email FROM users WHERE email = ?
-            """,
-            (request.inviteEmail,)
-        )
-        user_row = cursor.fetchone()
-        
-        if not user_row:
-            conn.close()
-            raise HTTPException(
-                status_code=404,
-                detail=f"User with email {request.inviteEmail} not found. They need to create an account first."
+            user_row = cursor.fetchone()
+            
+            if not user_row:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"User with email {request.inviteEmail} not found. They need to create an account first."
+                )
+            
+            shared_user_id = user_row["user_id"]
+            
+            # Check if user is already invited
+            cursor.execute(
+                """
+                SELECT shared_user_id FROM shared_trips 
+                WHERE trip_id = ? AND shared_user_id = ?
+                """,
+                (tripId, shared_user_id)
             )
-        
-        shared_user_id = user_row["user_id"]
-        
-        # Check if user is already invited
-        cursor.execute(
-            """
-            SELECT shared_user_id FROM shared_trips 
-            WHERE trip_id = ? AND shared_user_id = ?
-            """,
-            (tripId, shared_user_id)
-        )
-        if cursor.fetchone():
-            conn.close()
-            return {
-                "status": "already_invited",
-                "message": f"User {request.inviteEmail} already has access to this trip"
-            }
-        
-        # Add user to shared_trips
-        cursor.execute(
-            """
-            INSERT INTO shared_trips 
-            (trip_id, owner_user_id, shared_user_id, shared_user_email, permission, invited_at)
-            VALUES (?, ?, ?, ?, 'view_edit', datetime('now'))
-            """,
-            (tripId, request.userId, shared_user_id, request.inviteEmail)
-        )
-        
-        conn.commit()
-        conn.close()
+            if cursor.fetchone():
+                return {
+                    "status": "already_invited",
+                    "message": f"User {request.inviteEmail} already has access to this trip"
+                }
+            
+            # Add user to shared_trips
+            cursor.execute(
+                """
+                INSERT INTO shared_trips 
+                (trip_id, owner_user_id, shared_user_id, shared_user_email, permission, invited_at)
+                VALUES (?, ?, ?, ?, 'view_edit', datetime('now'))
+                """,
+                (tripId, request.userId, shared_user_id, request.inviteEmail)
+            )
+            
+            conn.commit()
         
         print(f"✅ Invited user {request.inviteEmail} (user_id: {shared_user_id}) to trip {tripId}")
         
@@ -982,44 +962,41 @@ async def get_shared_users(tripId: str, userId: str = Query(...)):
     Only users with access can see the shared users list
     """
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Check if requesting user has access
-        if not _user_has_access_to_trip(cursor, userId, tripId):
-            conn.close()
-            raise HTTPException(
-                status_code=403,
-                detail="You don't have access to this trip"
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if requesting user has access
+            if not _user_has_access_to_trip(cursor, userId, tripId):
+                raise HTTPException(
+                    status_code=403,
+                    detail="You don't have access to this trip"
+                )
+            
+            # Get all shared users for this trip
+            cursor.execute(
+                """
+                SELECT st.shared_user_id, st.shared_user_email, st.permission, st.invited_at, st.accepted_at,
+                       u.name, u.email
+                FROM shared_trips st
+                LEFT JOIN users u ON st.shared_user_id = u.user_id
+                WHERE st.trip_id = ?
+                ORDER BY st.invited_at ASC
+                """,
+                (tripId,)
             )
-        
-        # Get all shared users for this trip
-        cursor.execute(
-            """
-            SELECT st.shared_user_id, st.shared_user_email, st.permission, st.invited_at, st.accepted_at,
-                   u.name, u.email
-            FROM shared_trips st
-            LEFT JOIN users u ON st.shared_user_id = u.user_id
-            WHERE st.trip_id = ?
-            ORDER BY st.invited_at ASC
-            """,
-            (tripId,)
-        )
-        
-        rows = cursor.fetchall()
-        shared_users = []
-        
-        for row in rows:
-            shared_users.append({
-                "user_id": row["shared_user_id"],
-                "email": row["shared_user_email"] or row["email"],
-                "name": row["name"],
-                "permission": row["permission"],
-                "status": "accepted" if row["accepted_at"] else "invited",
-                "invited_at": row["invited_at"]
-            })
-        
-        conn.close()
+            
+            rows = cursor.fetchall()
+            shared_users = []
+            
+            for row in rows:
+                shared_users.append({
+                    "user_id": row["shared_user_id"],
+                    "email": row["shared_user_email"] or row["email"],
+                    "name": row["name"],
+                    "permission": row["permission"],
+                    "status": "accepted" if row["accepted_at"] else "invited",
+                    "invited_at": row["invited_at"]
+                })
         
         return {"sharedUsers": shared_users}
     except HTTPException:

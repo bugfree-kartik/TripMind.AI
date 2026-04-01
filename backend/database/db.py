@@ -3,8 +3,6 @@ Database initialization and connection management for TripMind
 """
 
 import sqlite3
-from datetime import datetime
-from typing import Optional
 import os
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "tripmind.db")
@@ -158,4 +156,3 @@ def init_db():
 
 if __name__ == "__main__":
     init_db()
-

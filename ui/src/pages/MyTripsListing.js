@@ -3,7 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { getTripsFromLocalStorage, deleteTripFromLocalStorage } from '../utils/tripUtils';
 import { useUser } from '../contexts/UserContext';
 import { API_TRIP_PLANNER } from '../config';
+import { sampleTrips } from '../data/sampleTrips';
 import './MyTripsListing.css';
+
+const sortTripsByLatest = (trips) =>
+  [...trips].sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
 
 const MyTripsListing = () => {
   const [trips, setTrips] = useState([]);
@@ -47,23 +51,17 @@ const MyTripsListing = () => {
             });
             
             // Convert map to array and sort by date (newest first)
-            const mergedTrips = Array.from(tripMap.values()).sort((a, b) => {
-              return new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt);
-            });
+            const mergedTrips = sortTripsByLatest(Array.from(tripMap.values()));
             
             setTrips(mergedTrips);
           } else {
             // If backend fails, use local trips
-            setTrips(localTrips.sort((a, b) => {
-              return new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt);
-            }));
+            setTrips(sortTripsByLatest(localTrips));
           }
         } catch (error) {
           console.error('Error fetching trips from backend:', error);
           // If backend fails, use local trips
-          setTrips(localTrips.sort((a, b) => {
-            return new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt);
-          }));
+          setTrips(sortTripsByLatest(localTrips));
         }
       } catch (error) {
         console.error('Error fetching trips:', error);
@@ -75,46 +73,6 @@ const MyTripsListing = () => {
 
     fetchTrips();
   }, []);
-
-  // Sample trips for demonstration
-  const sampleTrips = [
-    {
-      id: 'trip-1',
-      title: 'Japan Adventure',
-      destination: 'Tokyo, Japan',
-      image: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=800&h=400&fit=crop',
-      date: '2024-03-15',
-      status: 'Planning',
-      prompt: 'Plan a 10-day trip to Japan in March 2024. I have diabetes and prefer budget hotels. Include weather-based backup plans.'
-    },
-    {
-      id: 'trip-2',
-      title: 'European Tour',
-      destination: 'Paris, France',
-      image: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=800&h=400&fit=crop',
-      date: '2024-05-20',
-      status: 'Upcoming',
-      prompt: '7-day European tour with medical insurance, visiting Paris and Rome.'
-    },
-    {
-      id: 'trip-3',
-      title: 'Bali Family Trip',
-      destination: 'Bali, Indonesia',
-      image: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=800&h=400&fit=crop',
-      date: '2024-07-10',
-      status: 'Planning',
-      prompt: 'Family trip to Bali with weather backup plans and kid-friendly activities.'
-    },
-    {
-      id: 'trip-4',
-      title: 'New York City',
-      destination: 'New York, USA',
-      image: 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=800&h=400&fit=crop',
-      date: '2024-09-05',
-      status: 'Upcoming',
-      prompt: 'Weekend trip to New York with Broadway shows and shopping recommendations.'
-    },
-  ];
 
   // Use trips from state (which includes both backend and local storage)
   // Only show sample trips if no trips exist at all
@@ -155,10 +113,10 @@ const MyTripsListing = () => {
             'Content-Type': 'application/json',
           },
         }).catch(err => {
-          console.log('Could not delete trip from backend:', err);
+          console.warn('Could not delete trip from backend:', err);
         });
       } catch (err) {
-        console.log('Error deleting trip from backend:', err);
+        console.warn('Error deleting trip from backend:', err);
       }
       
       // Update trips list
@@ -253,4 +211,3 @@ const MyTripsListing = () => {
 };
 
 export default MyTripsListing;
-

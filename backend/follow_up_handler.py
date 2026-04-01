@@ -4,6 +4,7 @@ Routes to appropriate agents based on intent
 """
 
 from typing import Dict, Any, Optional
+import logging
 from agents.intent_classifier import IntentClassifier
 from agents.qa_agent import QAAgent
 from agents.stay_agent import StayAgent
@@ -12,6 +13,8 @@ from agents.travel_agent import TravelAgent
 from agents.experience_agent import ExperienceAgent
 from agents.planner_agent import PlannerAgent
 from shared.types import TripPlan, TripRequest, UserProfile
+
+logger = logging.getLogger(__name__)
 
 
 class FollowUpHandler:
@@ -70,7 +73,12 @@ class FollowUpHandler:
         # Classify intent
         intent = self.intent_classifier.classify(prompt)
         
-        print(f"\n🔍 Intent: {intent['intent']} | Category: {intent['category']} | Action: {intent['action']}")
+        logger.info(
+            "Intent=%s category=%s action=%s",
+            intent["intent"],
+            intent["category"],
+            intent["action"],
+        )
         
         if intent["intent"] == "modify":
             # Modification requests return UPDATED ITINERARY
@@ -115,7 +123,7 @@ class FollowUpHandler:
         # Handle accommodation modifications
         if category == "accommodation":
             if action in ["add", "change", "find"]:
-                print("🏨 Searching for new accommodations...")
+                logger.info("Searching for new accommodations...")
                 new_stay_results = await self.stay_agent.process(request, user_profile)
                 if new_stay_results.get("accommodations"):
                     stay_results = new_stay_results
@@ -124,7 +132,7 @@ class FollowUpHandler:
         # Handle restaurant modifications
         elif category == "restaurant":
             if action in ["add", "change", "find"]:
-                print("🍽️  Searching for new restaurants...")
+                logger.info("Searching for new restaurants...")
                 new_restaurant_results = await self.restaurant_agent.process(
                     request, stay_results, user_profile
                 )
@@ -135,7 +143,7 @@ class FollowUpHandler:
         # Handle transportation modifications
         elif category == "transportation":
             if action in ["add", "change", "find"]:
-                print("🚗 Searching for new transportation options...")
+                logger.info("Searching for new transportation options...")
                 new_travel_results = await self.travel_agent.process(request, stay_results)
                 if new_travel_results.get("transportation"):
                     travel_results = new_travel_results
@@ -144,7 +152,7 @@ class FollowUpHandler:
         # Handle experience modifications
         elif category == "experience":
             if action in ["add", "change", "find"]:
-                print("🎯 Searching for new experiences...")
+                logger.info("Searching for new experiences...")
                 new_experience_results = await self.experience_agent.process(request, stay_results)
                 if new_experience_results.get("experiences"):
                     experience_results = new_experience_results
@@ -152,7 +160,7 @@ class FollowUpHandler:
         
         # Re-generate itinerary if modified
         if modified:
-            print("📅 Updating itinerary...")
+            logger.info("Updating itinerary...")
             budget_results = {"budget": itinerary.budget}  # Keep existing budget
             
             updated_itinerary = await self.planner_agent.process(
@@ -184,4 +192,3 @@ class FollowUpHandler:
             return "Great! What would you like to do? You can ask questions about your itinerary or request modifications."
         else:
             return "I'm here to help with your trip! You can ask me questions about your itinerary or request changes. What would you like to know or modify?"
-
