@@ -5,7 +5,6 @@ Shared types and data models for TripMind
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, EmailStr
 from datetime import datetime, date
-from enum import Enum
 
 
 class UserProfile(BaseModel):
@@ -174,4 +173,3 @@ class AgentState(BaseModel):
     experience_results: Optional[Dict[str, Any]] = None
     budget_results: Optional[Dict[str, Any]] = None
     final_plan: Optional[TripPlan] = None
-

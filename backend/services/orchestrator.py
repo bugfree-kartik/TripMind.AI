@@ -10,6 +10,7 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 import os
 import asyncio
+import logging
 from dotenv import load_dotenv
 
 from agents.stay_agent import StayAgent
@@ -21,6 +22,7 @@ from agents.planner_agent import PlannerAgent
 from shared.types import TripRequest, TripPlan, UserProfile
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 class TripOrchestrator:
@@ -92,12 +94,12 @@ class TripOrchestrator:
     
     async def _stay_agent_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Stay agent processing node"""
-        print("   🏨 [1/6] StayAgent: Finding accommodations...")
+        logger.info("[1/6] StayAgent: Finding accommodations...")
         request = state["request"]
         user_profile = state.get("user_profile")
         result = await self.stay_agent.process(request, user_profile)
         acc_count = len(result.get("accommodations", [])) if result else 0
-        print(f"      ✅ Found {acc_count} accommodations")
+        logger.info("StayAgent found %s accommodations", acc_count)
         return {"stay_results": result}
     
     async def _parallel_agents_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -105,31 +107,31 @@ class TripOrchestrator:
         Parallel execution node - runs RestaurantAgent, TravelAgent, and ExperienceAgent concurrently
         All three agents only depend on stay_results, so they can run in parallel
         """
-        print("   ⚡ [2-4/6] Running agents in parallel: RestaurantAgent, TravelAgent, ExperienceAgent...")
+        logger.info("[2-4/6] Running RestaurantAgent, TravelAgent, ExperienceAgent in parallel")
         request = state["request"]
         stay_results = state.get("stay_results")
         user_profile = state.get("user_profile")
         
         # Run all three agents in parallel using asyncio.gather
         async def run_restaurant():
-            print("      🍽️  RestaurantAgent: Finding restaurants...")
+            logger.info("RestaurantAgent: Finding restaurants...")
             result = await self.restaurant_agent.process(request, stay_results, user_profile)
             rest_count = len(result.get("restaurants", [])) if result else 0
-            print(f"         ✅ RestaurantAgent: Found {rest_count} restaurants")
+            logger.info("RestaurantAgent found %s restaurants", rest_count)
             return ("restaurant", result)
         
         async def run_travel():
-            print("      ✈️  TravelAgent: Finding transportation options...")
+            logger.info("TravelAgent: Finding transportation options...")
             result = await self.travel_agent.process(request, stay_results)
             trans_count = len(result.get("transportation", [])) if result else 0
-            print(f"         ✅ TravelAgent: Found {trans_count} transportation options")
+            logger.info("TravelAgent found %s transportation options", trans_count)
             return ("travel", result)
         
         async def run_experience():
-            print("      🎯 ExperienceAgent: Finding local activities...")
+            logger.info("ExperienceAgent: Finding local activities...")
             result = await self.experience_agent.process(request, stay_results)
             exp_count = len(result.get("experiences", [])) if result else 0
-            print(f"         ✅ ExperienceAgent: Found {exp_count} experiences")
+            logger.info("ExperienceAgent found %s experiences", exp_count)
             return ("experience", result)
         
         # Execute all three agents concurrently
@@ -144,12 +146,12 @@ class TripOrchestrator:
         output = {}
         for result_tuple in results:
             if isinstance(result_tuple, Exception):
-                print(f"         ❌ Agent failed: {result_tuple}")
+                logger.error("Agent failed: %s", result_tuple)
                 continue
             
             agent_name, result = result_tuple
             if isinstance(result, Exception):
-                print(f"         ❌ {agent_name.capitalize()}Agent failed: {result}")
+                logger.error("%sAgent failed: %s", agent_name.capitalize(), result)
                 # Return empty result for failed agent
                 if agent_name == "restaurant":
                     output["restaurant_results"] = {"restaurants": []}
@@ -165,12 +167,12 @@ class TripOrchestrator:
                 elif agent_name == "experience":
                     output["experience_results"] = result
         
-        print("   ✅ All parallel agents completed!")
+        logger.info("All parallel agents completed")
         return output
     
     async def _budget_agent_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Budget agent processing node"""
-        print("   💰 [5/6] BudgetAgent: Calculating budget...")
+        logger.info("[5/6] BudgetAgent: Calculating budget...")
         request = state["request"]
         stay_results = state.get("stay_results")
         travel_results = state.get("travel_results")
@@ -182,12 +184,12 @@ class TripOrchestrator:
         # result is a dict with "budget" key containing BudgetBreakdown object
         budget_obj = result.get("budget") if result else None
         budget_total = budget_obj.total if budget_obj and hasattr(budget_obj, 'total') else 0
-        print(f"      ✅ Budget calculated: ${budget_total:.2f}")
+        logger.info("Budget calculated: $%.2f", budget_total)
         return {"budget_results": result}
     
     async def _planner_agent_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Planner agent processing node"""
-        print("   📅 [6/6] PlannerAgent: Creating itinerary...")
+        logger.info("[6/6] PlannerAgent: Creating itinerary...")
         request = state["request"]
         stay_results = state.get("stay_results")
         restaurant_results = state.get("restaurant_results")
@@ -201,7 +203,7 @@ class TripOrchestrator:
             itinerary_days = len(result.get("itinerary", [])) if result else 0
         else:
             itinerary_days = len(result.itinerary) if hasattr(result, 'itinerary') and result.itinerary else 0
-        print(f"      ✅ Created {itinerary_days}-day itinerary")
+        logger.info("Created %s-day itinerary", itinerary_days)
         return {"final_plan": result}
     
     async def plan_trip(self, request: TripRequest, user_profile: Optional[UserProfile] = None) -> TripPlan:
@@ -260,7 +262,7 @@ class TripOrchestrator:
                 self._user_profiles[user_id] = profile
                 return profile
         except Exception as e:
-            print(f"⚠️  Error loading user profile from database: {e}")
+            logger.warning("Error loading user profile from database: %s", e)
         
         return None
     
@@ -276,4 +278,3 @@ class TripOrchestrator:
     async def cleanup(self):
         """Cleanup resources"""
         pass
-

@@ -363,52 +363,6 @@ class ItineraryService:
         finally:
             conn.close()
     
-    def _update_itinerary(
-        self, 
-        user_id: str,
-        trip_id: str,
-        plan: TripPlan
-    ):
-        """
-        Update itinerary by creating a new version
-        
-        Args:
-            user_id: User ID
-            trip_id: Trip ID (from frontend)
-            plan: Updated TripPlan (the generated itinerary text)
-        """
-        # Verify itinerary exists
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        try:
-            cursor.execute(
-                "SELECT user_id FROM itineraries WHERE user_id = ? AND trip_id = ?",
-                (user_id, trip_id)
-            )
-            row = cursor.fetchone()
-            
-            if not row:
-                raise ValueError(f"Itinerary not found for user_id={user_id}, trip_id={trip_id}")
-            
-            # Create a dummy TripRequest (not stored in new schema)
-            destination = plan.request.destination if plan.request else None
-            request = TripRequest(
-                prompt="",
-                user_id=user_id,
-                destination=destination
-            )
-            
-            # Save as new version
-            self._save_itinerary(
-                user_id=user_id,
-                trip_id=trip_id,
-                request=request,
-                plan=plan
-            )
-        finally:
-            conn.close()
-    
     async def handle_follow_up(
         self,
         user_id: str,
@@ -598,4 +552,3 @@ class ItineraryService:
             return result
         finally:
             conn.close()
-

@@ -3,10 +3,10 @@ TripMind Backend - FastAPI Application
 Main entry point for the TripMind API server
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+import logging
 import uvicorn
 from dotenv import load_dotenv
 
@@ -16,6 +16,7 @@ from services.itinerary_service import ItineraryService
 from database.db import init_db
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 # Global orchestrator instance
 orchestrator = None
@@ -39,13 +40,13 @@ async def lifespan(app: FastAPI):
             orchestrator = TripOrchestrator()
             await orchestrator.initialize()
         except Exception as e:
-            print(f"⚠️  Warning: Could not initialize orchestrator: {e}")
-            print("   Legacy /plan endpoint will not be available")
+            logger.warning("Could not initialize orchestrator: %s", e)
+            logger.warning("Legacy /plan endpoint will not be available")
             orchestrator = None
     else:
-        print("⚠️  Warning: No LLM API key found (OPENAI_API_KEY or ANTHROPIC_API_KEY)")
-        print("   Orchestrator not initialized. Legacy /plan endpoint will not be available.")
-        print("   New /generate endpoint uses ItineraryService (doesn't need orchestrator)")
+        logger.warning("No LLM API key found (OPENAI_API_KEY or ANTHROPIC_API_KEY)")
+        logger.warning("Orchestrator not initialized. Legacy /plan endpoint will not be available.")
+        logger.info("New /generate endpoint uses ItineraryService (doesn't need orchestrator)")
         orchestrator = None
     
     # Initialize itinerary service (uses its own agents, doesn't need orchestrator)
@@ -115,4 +116,3 @@ async def health():
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-
